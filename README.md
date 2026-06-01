@@ -17,7 +17,7 @@ skills/
 
 | 技能 | 描述 |
 |------|------|
-| [web-novel-downloader](skills/web-novel-downloader/) | 网文下载器：搜索并下载公开可访问的网络小说（TXT/EPUB），支持多源交叉验证 |
+| [web-novel-downloader](skills/web-novel-downloader/) | 网文下载器：搜索下载公开网络小说（TXT/EPUB），双后端（Scrapy 轻量 + Scrapling 反爬），支持多源交叉验证 |
 
 ## 格式规范
 
@@ -25,7 +25,7 @@ skills/
 
 ## 安装
 
-**跨平台**（macOS / Linux / Windows），需要 Python 3.8+：
+**跨平台**（macOS / Linux / Windows），需要 Python 3.10+：
 
 ```bash
 # 克隆仓库
@@ -48,6 +48,16 @@ python3 install.py --uninstall
 ```
 
 > **Windows 用户注意**：安装脚本优先使用符号链接。如果权限不足（需管理员或开发者模式），会自动回退到目录复制。建议在 Windows 设置中开启「开发者模式」以获得最佳体验。
+
+## 更新技能
+
+符号链接安装后，更新仓库即自动更新技能（无需重装）：
+
+```bash
+cd ~/personal-skills && git pull
+# 如果 requirements.txt 有变动：
+python3 install.py --pip
+```
 
 ## 兼容性说明
 
