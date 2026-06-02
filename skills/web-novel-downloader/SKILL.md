@@ -226,17 +226,47 @@ Tell the user:
 
 When downloading multiple books (e.g., from a top-N list), use **subagents for maximum parallelism**. Each book's full pipeline (search → download → extract) is independent of others.
 
-### Subagent Strategy（推荐，3+ 本书时使用）
+### Step 0 — Dedup（必做，省 token）
+
+**启动任何 agent 之前，先检查本地是否已有文件**：
+
+```python
+from common import find_existing_books, slugify
+existing = find_existing_books("downloads")  # {slug: file_path}
+
+# 同时去重任务列表中的重复书名
+seen = set()
+todo = []
+for book in book_list:
+    key = slugify(book)
+    if key in existing:
+        print(f"[skip] {book} — already downloaded: {existing[key]}")
+    elif key in seen:
+        print(f"[skip] {book} — duplicate in task list")
+    else:
+        seen.add(key)
+        todo.append(book)
+
+print(f"To download: {len(todo)} / {len(book_list)} (skipped {len(book_list)-len(todo)})")
+```
+
+去重规则：
+- **本地已有**：`downloads/<slug>/` 下有 > 10KB 的 txt/epub/pdf → 跳过
+- **任务内重复**：同一书名出现多次 → 只保留第一次
+- 在报告里标注跳过了哪些书及原因
+
+### Subagent Strategy（推荐，3+ 本去重后仍有余量时使用）
 
 ```
 Dispatcher (主 agent)
+  │
+  ├── Step 0: dedup（去重）
+  │
   ├── Agent 1: "下载《书名A》" — ixdzs 全流程
   ├── Agent 2: "下载《书名B》" — ixdzs 全流程
-  ├── Agent 3: "下载《书名C》" — ixdzs 全流程
-  ├── Agent 4: "下载《书名D》" — 先试 ixdzs，没有则 spider
-  └── Agent 5: "下载《书名E》" — 先试 ixdzs，没有则 spider
+  └── Agent N: ...
           ↓ 全部完成后
-  Dispatcher: 汇总报告（成功/失败/需要 spider 的）
+  Dispatcher: 汇总报告（成功/失败/已跳过）
 ```
 
 **并发限制**：
@@ -246,19 +276,22 @@ Dispatcher (主 agent)
 **Dispatcher 执行流程**：
 
 ```bash
-# Phase 1: 所有书先启动 ixdzs agent（并行）
-# 每本书一个 agent，内部执行搜索→验证→下载→解压→转码→确认
-for book in "书名1" "书名2" "书名3"; do
+# Step 0: 去重（python one-liner）
+python3 -c "
+from common import find_existing_books, slugify
+existing = find_existing_books('downloads')
+for book in open('book_list.txt'):
+    key = slugify(book.strip())
+    print(f'skip:{book}' if key in existing else f'todo:{book}')
+" | tee /tmp/batch_status.txt
+
+# Phase 1: 只对 todo 的书启动 ixdzs agent（并行）
+grep '^todo:' /tmp/batch_status.txt | cut -d: -f2- | while read book; do
   Agent "下载《$book》：先搜 ixdzs，找到后下载 ZIP 解压转 UTF-8" &
 done
-# 等待全部完成
 
 # Phase 2: 只对 ixdzs 没找到的书启动 spider agent（并行，限 2-3 个）
-for book in failed_books; do
-  Agent "下载《$book》：ixdzs 没有，用 spider 逐章下载" &
-done
-
-# Phase 3: 汇总报告
+# Phase 3: 汇总报告（含已跳过的数量）
 ```
 
 ### 无 Subagent 时的备选方案（2 本以内）

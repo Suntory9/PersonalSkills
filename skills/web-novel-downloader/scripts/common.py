@@ -230,6 +230,35 @@ def load_existing_chapters(txt_path: Path) -> set[str]:
 
 
 # ---------------------------------------------------------------------------
+# Batch dedup — skip books already downloaded
+# ---------------------------------------------------------------------------
+
+
+def find_existing_books(output_dir: str | Path) -> dict[str, Path]:
+    """Scan output dir for already-downloaded books.
+
+    Returns a dict mapping slug → file path for any book that has a
+    non-trivial TXT or EPUB file already on disk (> 10 KB).
+    Dispatcher uses this to skip already-completed downloads.
+    """
+    existing: dict[str, Path] = {}
+    base = Path(output_dir)
+    if not base.is_dir():
+        return existing
+    for book_dir in base.iterdir():
+        if not book_dir.is_dir():
+            continue
+        for ext in (".txt", ".epub", ".pdf", ".mobi", ".azw3"):
+            for f in book_dir.glob(f"*{ext}"):
+                if f.stat().st_size > 10240:  # > 10 KB
+                    existing[book_dir.name] = f
+                    break
+            if book_dir.name in existing:
+                break
+    return existing
+
+
+# ---------------------------------------------------------------------------
 # Element compatibility layer (Scrapy Selector vs Scrapling Adaptor)
 # ---------------------------------------------------------------------------
 
