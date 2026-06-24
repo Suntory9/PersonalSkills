@@ -6,8 +6,8 @@
     "agent-reach": {
       "type": "github",
       "source": "https://github.com/Panniantong/Agent-Reach",
-      "update": "manual-diff",
-      "notes": "第三方来源；同步前先与本地版本 diff，避免覆盖本地适配。"
+      "update": "script",
+      "notes": "由 localagentskills update 直接从 GitHub 上游同步；如需保留本地适配，请先移除 source 或改为 local。"
     },
     "ai-spend-audit": {
       "type": "custom",
@@ -48,20 +48,20 @@
     "grill-me": {
       "type": "github",
       "source": "https://github.com/mattpocock/skills",
-      "update": "manual-diff",
-      "notes": "Matches mattpocock/skills grill-me; local copy may include adaptations, so sync via manual diff."
+      "update": "script",
+      "notes": "由 localagentskills update 直接从 GitHub 上游同步；如需保留本地适配，请先移除 source 或改为 local。"
     },
     "grill-with-docs": {
       "type": "github",
       "source": "https://github.com/mattpocock/skills",
-      "update": "manual-diff",
-      "notes": "Matches mattpocock/skills grill-with-docs; local copy may include adaptations, so sync via manual diff."
+      "update": "script",
+      "notes": "由 localagentskills update 直接从 GitHub 上游同步；如需保留本地适配，请先移除 source 或改为 local。"
     },
     "handoff": {
       "type": "github",
       "source": "https://github.com/mattpocock/skills",
-      "update": "manual-diff",
-      "notes": "Matches mattpocock/skills handoff; local copy may include adaptations, so sync via manual diff."
+      "update": "script",
+      "notes": "由 localagentskills update 直接从 GitHub 上游同步；如需保留本地适配，请先移除 source 或改为 local。"
     },
     "hatch-pet": {
       "type": "third-party",
@@ -72,8 +72,8 @@
     "improve-codebase-architecture": {
       "type": "github",
       "source": "https://github.com/mattpocock/skills",
-      "update": "manual-diff",
-      "notes": "Matches mattpocock/skills improve-codebase-architecture; local copy may include adaptations, so sync via manual diff."
+      "update": "script",
+      "notes": "由 localagentskills update 直接从 GitHub 上游同步；如需保留本地适配，请先移除 source 或改为 local。"
     },
     "jira-fullstack-orchestrator": {
       "type": "internal",
@@ -108,8 +108,8 @@
     "last30days": {
       "type": "github",
       "source": "https://github.com/mvanhorn/last30days-skill",
-      "update": "manual-diff",
-      "notes": "第三方来源且本地包含较多脚本/适配；同步前必须 diff。"
+      "update": "script",
+      "notes": "由 localagentskills update 直接从 GitHub 上游同步；如需保留本地适配，请先移除 source 或改为 local。"
     },
     "pdf": {
       "type": "third-party",
@@ -120,44 +120,44 @@
     "prototype": {
       "type": "github",
       "source": "https://github.com/mattpocock/skills",
-      "update": "manual-diff",
-      "notes": "Matches mattpocock/skills prototype; local copy may include adaptations, so sync via manual diff."
+      "update": "script",
+      "notes": "由 localagentskills update 直接从 GitHub 上游同步；如需保留本地适配，请先移除 source 或改为 local。"
     },
     "setup-matt-pocock-skills": {
       "type": "github",
       "source": "https://github.com/mattpocock/skills",
-      "update": "manual-diff",
-      "notes": "Matches mattpocock/skills setup-matt-pocock-skills; local copy may include adaptations, so sync via manual diff."
+      "update": "script",
+      "notes": "由 localagentskills update 直接从 GitHub 上游同步；如需保留本地适配，请先移除 source 或改为 local。"
     },
     "tdd": {
       "type": "github",
       "source": "https://github.com/mattpocock/skills",
-      "update": "manual-diff",
-      "notes": "Matches mattpocock/skills tdd; local copy may include adaptations, so sync via manual diff."
+      "update": "script",
+      "notes": "由 localagentskills update 直接从 GitHub 上游同步；如需保留本地适配，请先移除 source 或改为 local。"
     },
     "tech-doc-style-chinese": {
       "type": "github",
       "source": "https://github.com/Fenng/tech-doc-style-chinese.git",
-      "update": "manual-diff",
+      "update": "script",
       "notes": "第三方中文技术文档风格 skill；本地可能包含适配文件。"
     },
     "to-issues": {
       "type": "github",
       "source": "https://github.com/mattpocock/skills",
-      "update": "manual-diff",
-      "notes": "Matches mattpocock/skills to-issues; local copy may include adaptations, so sync via manual diff."
+      "update": "script",
+      "notes": "由 localagentskills update 直接从 GitHub 上游同步；如需保留本地适配，请先移除 source 或改为 local。"
     },
     "to-prd": {
       "type": "github",
       "source": "https://github.com/mattpocock/skills",
-      "update": "manual-diff",
-      "notes": "Matches mattpocock/skills to-prd; local copy may include adaptations, so sync via manual diff."
+      "update": "script",
+      "notes": "由 localagentskills update 直接从 GitHub 上游同步；如需保留本地适配，请先移除 source 或改为 local。"
     },
     "triage": {
       "type": "github",
       "source": "https://github.com/mattpocock/skills",
-      "update": "manual-diff",
-      "notes": "Matches mattpocock/skills triage; local copy may include adaptations, so sync via manual diff."
+      "update": "script",
+      "notes": "由 localagentskills update 直接从 GitHub 上游同步；如需保留本地适配，请先移除 source 或改为 local。"
     },
     "ttdbl2-unity-prefab-view-builder": {
       "type": "internal",

@@ -24,10 +24,15 @@ def ensure_supported_python(version_info: tuple[int, int, int] | object | None =
     major, minor, micro = tuple(version_info[:3])
     if (major, minor) >= MIN_PYTHON:
         return
+    req = f"{MIN_PYTHON[0]}.{MIN_PYTHON[1]}"
     sys.stderr.write(
-        "last30days v3 requires Python 3.12+.\n"
+        f"last30days v3 requires Python {req}+.\n"
         f"Detected Python {major}.{minor}.{micro}.\n"
-        "Install and use python3.12 or python3.13, then rerun this command.\n"
+        f"Install with:\n"
+        f"  Mac:     brew install python@{req}\n"
+        f"  Windows: winget install Python.Python.{req}\n"
+        f"  Linux:   sudo apt install python{req}  (or pyenv install {req})\n"
+        f"Then rerun: python{req} <path-to-script> setup\n"
     )
     raise SystemExit(1)
 
@@ -42,7 +47,7 @@ if os.name == "nt":
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.insert(0, str(SCRIPT_DIR))
 
-from lib import env, html_render, pipeline, render, schema, ui
+from lib import dates, env, html_render, pipeline, render, schema, ui
 
 _child_pids: set[int] = set()
 _child_pids_lock = threading.Lock()
@@ -74,7 +79,7 @@ def _cleanup_children() -> None:
 atexit.register(_cleanup_children)
 
 
-def parse_search_flag(raw: str) -> list[str]:
+def parse_search_flag(raw: str, flag_name: str = "--search") -> list[str]:
     sources = []
     for source in raw.split(","):
         source = source.strip().lower()
@@ -82,12 +87,32 @@ def parse_search_flag(raw: str) -> list[str]:
             continue
         normalized = pipeline.SEARCH_ALIAS.get(source, source)
         if normalized not in pipeline.MOCK_AVAILABLE_SOURCES:
-            raise SystemExit(f"Unknown search source: {source}")
+            raise SystemExit(f"Unknown search source in {flag_name}: {source}")
         if normalized not in sources:
             sources.append(normalized)
     if not sources:
-        raise SystemExit("--search requires at least one source.")
+        raise SystemExit(f"{flag_name} requires at least one source.")
     return sources
+
+def parse_as_of_date_arg(value: str) -> str:
+    try:
+        parsed = dates.parse_as_of_date(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+    return parsed
+
+def resolve_requested_sources(args_search: str | None, config: dict) -> list[str] | None:
+    """Resolve the requested source set: explicit --search wins, then the
+    LAST30DAYS_DEFAULT_SEARCH config key (env var or .env file), then None
+    (per-query default behavior). The config fallback lets users pin a fixed
+    source set that survives upgrades without patching SKILL.md (#442).
+    """
+    if args_search:
+        return parse_search_flag(args_search)
+    default_search = (config.get("LAST30DAYS_DEFAULT_SEARCH") or "").strip()
+    if default_search:
+        return parse_search_flag(default_search, flag_name="LAST30DAYS_DEFAULT_SEARCH")
+    return None
 
 
 def slugify(value: str) -> str:
@@ -126,6 +151,13 @@ def save_output(
     return out_path
 
 
+def save_rendered_output(rendered_content: str, output_file: str) -> Path:
+    out_path = Path(output_file).expanduser().resolve()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(rendered_content, encoding="utf-8")
+    return out_path
+
+
 def emit_output(
     report: schema.Report,
     emit: str,
@@ -143,6 +175,8 @@ def emit_output(
         return render.render_compact(report, fun_level=fun_level, save_path=save_path)
     if emit == "context":
         return render.render_context(report)
+    if emit == "brief":
+        return render.render_brief(report)
     raise SystemExit(f"Unsupported emit mode: {emit}")
 
 
@@ -204,6 +238,17 @@ def compute_save_path_display(save_dir: str, topic: str, suffix: str, emit: str)
         return raw.as_posix()
 
 
+def compute_output_path_display(output_file: str) -> str:
+    """Compute the user-friendly explicit output path shown in render footers."""
+    raw = Path(output_file).expanduser().resolve()
+    try:
+        home = Path.home().resolve()
+        relative = raw.relative_to(home)
+        return f"~/{relative.as_posix()}"
+    except ValueError:
+        return raw.as_posix()
+
+
 def read_synthesis_file(path: str) -> str:
     try:
         return Path(path).expanduser().read_text(encoding="utf-8")
@@ -236,9 +281,12 @@ def persist_report(report: schema.Report) -> dict[str, int]:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Research a topic across live social, market, and grounded web sources.")
+    parser = argparse.ArgumentParser(
+        description="Research a topic across live social, market, and grounded web sources.",
+        allow_abbrev=False,
+    )
     parser.add_argument("topic", nargs="*", help="Research topic")
-    parser.add_argument("--emit", default="compact", choices=["compact", "json", "context", "md", "html"])
+    parser.add_argument("--emit", default="compact", choices=["compact", "json", "context", "md", "html", "brief"])
     parser.add_argument("--search", help="Comma-separated source list")
     parser.add_argument("--quick", action="store_true", help="Lower-latency retrieval profile")
     parser.add_argument("--deep", action="store_true", help="Higher-recall retrieval profile")
@@ -246,6 +294,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mock", action="store_true", help="Use mock retrieval fixtures")
     parser.add_argument("--diagnose", action="store_true", help="Print provider and source availability")
     parser.add_argument("--save-dir", help="Optional directory for saving the rendered output")
+    parser.add_argument("--output", help="Optional exact file path for saving the rendered output")
     parser.add_argument("--synthesis-file", help="Markdown synthesis to embed in --emit=html output")
     parser.add_argument("--store", action="store_true", help="Persist ranked findings to the SQLite research store")
     parser.add_argument("--x-handle", help="X handle for targeted supplemental search")
@@ -254,7 +303,9 @@ def build_parser() -> argparse.ArgumentParser:
                         choices=["auto", "brave", "exa", "serper", "parallel", "none"],
                         help="Web search backend (default: auto, tries Brave then Exa then Serper then Parallel)")
     parser.add_argument("--deep-research", action="store_true",
-                        help="Use Perplexity Deep Research (~$0.90/query) for in-depth analysis. Requires OPENROUTER_API_KEY.")
+                        help="Use Perplexity Deep Research (~$0.90/query) for in-depth analysis. Requires PERPLEXITY_API_KEY or OPENROUTER_API_KEY.")
+    parser.add_argument("--hiring-signals", action="store_true",
+                        help="Analyze public jobs/careers postings as evidence-backed company focus signals.")
     parser.add_argument("--plan", help="JSON query plan (skips internal LLM planner). Can be a JSON string or a file path.")
     parser.add_argument("--save-suffix", help="Suffix for saved output filename (e.g., 'gemini' → kanye-west-raw-gemini.md)")
     parser.add_argument("--subreddits", help="Comma-separated subreddit names to search (e.g., SaaS,Entrepreneur)")
@@ -268,6 +319,15 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=30,
         help="Number of days to look back for research (default: 30, watchlist uses 90)",
+    )
+    parser.add_argument(
+        "--as-of",
+        dest="as_of_date",
+        type=parse_as_of_date_arg,
+        help=(
+            "End date for the lookback window in YYYY-MM-DD format. "
+            "When set, --days looks back from this date instead of today."
+            ),
     )
     parser.add_argument("--auto-resolve", action="store_true",
                         help="Use web search to discover subreddits/handles before planning (for platforms without WebSearch)")
@@ -325,8 +385,8 @@ def parse_competitors_plan(raw: str | None) -> dict[str, dict]:
     plan_str = raw
     if os.path.isfile(plan_str):
         try:
-            plan_str = open(plan_str).read()
-        except OSError as exc:
+            plan_str = open(plan_str, encoding="utf-8").read()
+        except (OSError, UnicodeDecodeError) as exc:
             sys.stderr.write(f"[CompetitorsPlan] Cannot read plan file: {exc}\n")
             raise SystemExit(2)
     try:
@@ -488,7 +548,12 @@ def _missing_sources_for_promo(diag: dict[str, object]) -> str | None:
         missing.append("reddit")
     if "x" not in available:
         missing.append("x")
-    if "grounding" not in available:
+    # The web promo nudges toward a paid backend for higher-quality web search.
+    # Grounding is now available keyless on non-native hosts, so key the promo on
+    # the absence of a *paid* backend, not on grounding availability. Suppress it
+    # entirely on native-search hosts, where the model's own search is better and
+    # setting a paid engine key would be the wrong advice.
+    if not diag.get("native_web_backend") and not diag.get("native_search"):
         missing.append("web")
     if not missing:
         return None
@@ -553,6 +618,27 @@ def _write_last_run(topic: str, report: "schema.Report") -> None:
         pass
 
 
+def _propagate_config_to_environ() -> None:
+    """Push relevant env keys to os.environ so provider modules can read them.
+
+    The env.get_config() function reads from a .env file, but providers.py
+    reads from os.environ directly. Without this, OPENAI_BASE_URL and
+    XAI_BASE_URL overrides are silently ignored. This is a no-op for
+    keys that are already set in process env.
+    """
+    try:
+        config = env.get_config()
+    except Exception:
+        return
+    for key in ("OPENAI_BASE_URL", "XAI_BASE_URL"):
+        val = config.get(key)
+        if val and not os.environ.get(key):
+            os.environ[key] = val
+
+
+_propagate_config_to_environ()
+
+
 def main() -> int:
     parser = build_parser()
     # Use parse_known_args so setup sub-flags (--device-auth, --github,
@@ -562,6 +648,15 @@ def main() -> int:
         os.environ["LAST30DAYS_DEBUG"] = "1"
 
     config = env.get_config()
+
+    # Env-var fallback for --save-dir, mirroring the LAST30DAYS_STORE pattern below.
+    # Uses `is None` / `is not None` checks (not truthy `or`) at every layer so that
+    # `--save-dir ""`, `LAST30DAYS_MEMORY_DIR=""` (shell-export-empty), and explicit
+    # absence each correctly suppress save. An `or` chain would collapse the empty
+    # shell-export into the same path as unset, silently falling through to .env.
+    if args.save_dir is None:
+        env_val = os.environ.get("LAST30DAYS_MEMORY_DIR")
+        args.save_dir = env_val if env_val is not None else config.get("LAST30DAYS_MEMORY_DIR")
 
     # Surface SSH-routing config as an env var so library modules (e.g.
     # youtube_yt) can read it without taking a config dependency. This
@@ -578,26 +673,39 @@ def main() -> int:
             results = setup_wizard.run_openclaw_setup(config)
             print(json.dumps(results))
             return 0
-        if "--github" in extra_argv:
-            results = setup_wizard.run_github_auth()
-            print(json.dumps(results))
-            return 0
-        if "--device-auth" in extra_argv:
-            results = setup_wizard.run_full_device_auth()
+        if "--github" in extra_argv or "--device-auth" in extra_argv:
+            if "--github" in extra_argv:
+                results = setup_wizard.run_github_auth()
+            else:
+                results = setup_wizard.run_full_device_auth()
+            # Persist the returned key so the paid sources activate on the next
+            # run, and mask it in stdout so the secret never lands in the host
+            # model's captured Bash output.
+            api_key = results.get("api_key")
+            if results.get("status") == "success" and api_key:
+                results["persisted"] = setup_wizard.write_api_key(env.CONFIG_FILE, api_key)
+                results["api_key"] = setup_wizard.mask_api_key(api_key)
+            else:
+                results["persisted"] = False
             print(json.dumps(results))
             return 0
         sys.stderr.write("Running auto-setup...\n")
         results = setup_wizard.run_auto_setup(config)
-        from_browser = "auto"
-        if results.get("cookies_found"):
-            first_browser = next(iter(results["cookies_found"].values()))
-            from_browser = first_browser
+        # Persist FROM_BROWSER only when every service's cookies came from the
+        # SAME single browser — then we can fast-path future runs to it. If
+        # different services matched different browsers, or none matched, leave
+        # FROM_BROWSER unset: the safe default (Firefox/Safari) then covers all
+        # of them with no Keychain prompt. We deliberately do NOT pin "auto"
+        # here (it would re-probe Chrome and re-trigger the prompt) nor a single
+        # browser (it would silently skip the service that used the other one).
+        found_browsers = set(results.get("cookies_found", {}).values())
+        from_browser = found_browsers.pop() if len(found_browsers) == 1 else None
         setup_wizard.write_setup_config(env.CONFIG_FILE, from_browser=from_browser)
         results["env_written"] = True
         sys.stderr.write(setup_wizard.get_setup_status_text(results) + "\n")
         return 0
 
-    requested_sources = parse_search_flag(args.search) if args.search else None
+    requested_sources = resolve_requested_sources(args.search, config)
     diag = pipeline.diagnose(config, requested_sources)
 
     if args.diagnose:
@@ -638,7 +746,11 @@ def main() -> int:
             import json as _json
             plan_str = args.plan
             if os.path.isfile(plan_str):
-                plan_str = open(plan_str).read()
+                try:
+                    plan_str = open(plan_str, encoding="utf-8").read()
+                except (OSError, UnicodeDecodeError) as exc:
+                    sys.stderr.write(f"[Planner] Cannot read --plan file: {exc}\n")
+                    raise SystemExit(2)
             try:
                 external_plan = _json.loads(plan_str)
             except _json.JSONDecodeError as exc:
@@ -693,8 +805,8 @@ def main() -> int:
 
         # --deep-research: auto-enable perplexity source and set deep flag
         if args.deep_research:
-            if not config.get("OPENROUTER_API_KEY"):
-                print("Error: --deep-research requires OPENROUTER_API_KEY", file=sys.stderr)
+            if not (config.get("PERPLEXITY_API_KEY") or config.get("OPENROUTER_API_KEY")):
+                print("Error: --deep-research requires PERPLEXITY_API_KEY or OPENROUTER_API_KEY", file=sys.stderr)
                 sys.exit(1)
             config["_deep_research"] = True
             # Auto-enable perplexity in INCLUDE_SOURCES
@@ -750,8 +862,11 @@ def main() -> int:
                 tiktok_creators=tiktok_creators,
                 ig_creators=ig_creators,
                 lookback_days=args.lookback_days,
+                as_of_date=args.as_of_date,
                 github_user=github_user,
                 github_repos=github_repos,
+                internal_subrun=comp_enabled,
+                hiring_signals_mode=args.hiring_signals,
             )
             r.artifacts["resolved"] = {
                 "entity": topic,
@@ -787,7 +902,7 @@ def main() -> int:
                         "\n"
                         "HEADLESS / CRON PATH (no hosting model available): set "
                         "BRAVE_API_KEY / EXA_API_KEY / SERPER_API_KEY / PARALLEL_API_KEY / "
-                        "OPENROUTER_API_KEY and re-run.\n"
+                        "PERPLEXITY_API_KEY / OPENROUTER_API_KEY and re-run.\n"
                         "\n"
                         "MINIMUM ESCAPE HATCH: pass --competitors-list 'A,B,C' to skip "
                         "discovery. Without --competitors-plan, peer sub-runs fall back to "
@@ -879,6 +994,8 @@ def main() -> int:
                     github_repos=kwargs["github_repos"],
                     web_backend=args.web_backend,
                     lookback_days=args.lookback_days,
+                    as_of_date=args.as_of_date,
+                    hiring_signals_mode=args.hiring_signals,
                     internal_subrun=True,
                 )
                 report.artifacts["resolved"] = resolved_effective
@@ -928,40 +1045,51 @@ def main() -> int:
         )
         sys.stderr.flush()
 
-    # Show quality nudge if applicable
-    try:
-        from lib import quality_nudge
-        # Populate transcript-fetch ratio so quality_nudge can detect the
-        # degraded-YouTube failure mode (videos returned but transcripts
-        # silently failed - typically a stale yt-dlp binary).
-        youtube_items = report.items_by_source.get("youtube") or []
-        instagram_items = report.items_by_source.get("instagram") or []
-        research_results = {
-            "youtube_videos_count": len(youtube_items),
-            "youtube_transcripts_count": sum(
-                1 for it in youtube_items
-                if (it.metadata.get("transcript_highlights") or it.metadata.get("transcript_snippet"))
-            ),
-            "youtube_error": report.errors_by_source.get("youtube"),
-            "x_error": report.errors_by_source.get("x"),
-            # Captions-disabled videos can never produce a transcript regardless
-            # of yt-dlp version; subtract them from the degraded-ratio
-            # denominator so a single uploader-disabled video does not trip the
-            # "stale yt-dlp" nudge.
-            "youtube_captions_disabled_count": sum(
-                1 for it in youtube_items if it.metadata.get("captions_disabled")
-            ),
-            # Track Instagram returned-zero-items so quality_nudge can detect
-            # the silent-failure case (SC configured but the v2 reels endpoint
-            # 500'd through both the original query and the hashtag retry).
-            "instagram_items_count": len(instagram_items),
-        }
-        quality = quality_nudge.compute_quality_score(config, research_results)
-        if quality.get("nudge_text"):
-            sys.stderr.write(f"\n{quality['nudge_text']}\n")
-            sys.stderr.flush()
-    except Exception:
-        pass
+    # Show quality nudge if applicable. Explicit hiring-signal runs are
+    # intentionally jobs-focused, so generic source setup advice is noise.
+    if not args.hiring_signals:
+        try:
+            from lib import quality_nudge
+            from lib import youtube_yt as _youtube_yt
+            # Populate transcript-fetch ratio so quality_nudge can detect the
+            # degraded-YouTube failure mode (videos returned but transcripts
+            # silently failed - typically a stale yt-dlp binary).
+            youtube_items = report.items_by_source.get("youtube") or []
+            _yt_fetch_stats = _youtube_yt.get_transcript_fetch_stats()
+            instagram_items = report.items_by_source.get("instagram") or []
+            research_results = {
+                "youtube_videos_count": len(youtube_items),
+                "youtube_transcripts_count": sum(
+                    1 for it in youtube_items
+                    if (it.metadata.get("transcript_highlights") or it.metadata.get("transcript_snippet"))
+                ),
+                "youtube_error": report.errors_by_source.get("youtube"),
+                "x_error": report.errors_by_source.get("x"),
+                # Captions-disabled videos can never produce a transcript regardless
+                # of yt-dlp version; subtract them from the degraded-ratio
+                # denominator so a single uploader-disabled video does not trip the
+                # "stale yt-dlp" nudge.
+                "youtube_captions_disabled_count": sum(
+                    1 for it in youtube_items if it.metadata.get("captions_disabled")
+                ),
+                # Actual yt-dlp fetch outcomes for this run. The counts above are
+                # computed from post-pruning items, so they can't tell "fetches
+                # failed (stale binary)" from "fetches succeeded but the videos
+                # were pruned downstream"; the latter was producing false
+                # stale-yt-dlp nudges (#531).
+                "youtube_transcript_fetch_attempts": _yt_fetch_stats["attempts"],
+                "youtube_transcript_fetch_failures": _yt_fetch_stats["failures"],
+                # Track Instagram returned-zero-items so quality_nudge can detect
+                # the silent-failure case (SC configured but the v2 reels endpoint
+                # 500'd through both the original query and the hashtag retry).
+                "instagram_items_count": len(instagram_items),
+            }
+            quality = quality_nudge.compute_quality_score(config, research_results)
+            if quality.get("nudge_text"):
+                sys.stderr.write(f"\n{quality['nudge_text']}\n")
+                sys.stderr.flush()
+        except Exception:
+            pass
 
     fun_level = config.get("FUN_LEVEL", "medium").lower()
     # Comparison HTML is the one case where the saved file's title and content
@@ -969,7 +1097,9 @@ def main() -> int:
     # gate once so the footer-display and save-output paths can't disagree.
     is_comparison_html = bool(entity_reports) and args.emit == "html"
     footer_save_path = None
-    if args.save_dir:
+    if args.output:
+        footer_save_path = compute_output_path_display(args.output)
+    elif args.save_dir:
         save_topic_for_display = comparison_topic(entity_reports) if is_comparison_html else report.topic
         footer_save_path = compute_save_path_display(
             args.save_dir, save_topic_for_display, args.save_suffix or "", args.emit
@@ -1005,6 +1135,10 @@ def main() -> int:
             save_path=footer_save_path,
             synthesis_md=synthesis_md,
         )
+    if args.output:
+        output_path = save_rendered_output(rendered, args.output)
+        sys.stderr.write(f"[last30days] Saved output to {output_path}\n")
+        sys.stderr.flush()
     if args.save_dir:
         # Save the main topic's raw file (single-entity or comparison main).
         save_path = save_output(
