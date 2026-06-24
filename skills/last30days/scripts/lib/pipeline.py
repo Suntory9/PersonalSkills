@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 import threading
 import time
@@ -21,7 +22,9 @@ from . import (
     github,
     grounding,
     hackernews,
+    hiring_signals,
     instagram,
+    jobs,
     normalize,
     perplexity,
     pinterest,
@@ -60,10 +63,22 @@ SEARCH_ALIAS = {
     "truth": "truthsocial",
     "web": "grounding",
     "xhs": "xiaohongshu",
-    "xquik": "xquik",
+    "xquik": "x",  # xquik is a backend of the single "x" source, not its own source
 }
 
-MAX_SOURCE_FETCHES: dict[str, int] = {"x": 2}
+MAX_SOURCE_FETCHES: dict[str, int] = {"x": 2, "jobs": 1}
+
+# Per-handle result caps for the X handle-search lanes. The FROM lane (the
+# subject's own timeline) is the single best source for a person topic, so it
+# gets the highest cap; the ABOUT (mention) and related-handle lanes stay
+# modest so total volume and request budget don't balloon.
+FROM_LANE_COUNT_PER = 8
+MENTION_LANE_COUNT_PER = 5
+RELATED_HANDLE_COUNT_PER = 3
+
+
+def _has_perplexity_provider(config: dict[str, Any]) -> bool:
+    return bool(config.get("PERPLEXITY_API_KEY") or config.get("OPENROUTER_API_KEY"))
 
 MOCK_AVAILABLE_SOURCES = [
     "reddit",
@@ -81,8 +96,8 @@ MOCK_AVAILABLE_SOURCES = [
     "perplexity",
     "threads",
     "pinterest",
-    "xquik",
     "digg",
+    "jobs",
 ]
 
 
@@ -108,19 +123,28 @@ def available_sources(config: dict[str, Any], requested_sources: list[str] | Non
     if which("yt-dlp") or env.is_youtube_sc_available(config):
         available.append("youtube")
     available.extend(["hackernews", "polymarket"])
-    if config.get("GITHUB_TOKEN") or which("gh"):
-        available.append("github")
+    # GitHub is reachable via the unauthenticated REST tier too, so it is
+    # available even without a token/gh CLI (a token only raises rate limits).
+    available.append("github")
     if which("digg-pp-cli"):
         available.append("digg")
     if env.is_bluesky_available(config):
         available.append("bluesky")
     if env.is_truthsocial_available(config):
         available.append("truthsocial")
-    if config.get("BRAVE_API_KEY") or config.get("EXA_API_KEY") or config.get("SERPER_API_KEY") or config.get("PARALLEL_API_KEY"):
+    # Grounding (general web) is available when a paid backend is configured OR
+    # the keyless floor is permitted (i.e. the host has no native search). On a
+    # native-search host with no paid key, keyless_web_allowed is False and the
+    # engine leaves general web to the model's own search.
+    if (config.get("BRAVE_API_KEY") or config.get("EXA_API_KEY")
+            or config.get("SERPER_API_KEY") or config.get("PARALLEL_API_KEY")
+            or env.keyless_web_allowed(config)):
         available.append("grounding")
+    if requested_sources and "jobs" in requested_sources:
+        available.append("jobs")
     # Perplexity Sonar: opt-in additive source via INCLUDE_SOURCES=perplexity
     include_sources = (config.get("INCLUDE_SOURCES") or "").lower().split(",")
-    if config.get("OPENROUTER_API_KEY") and (
+    if _has_perplexity_provider(config) and (
         "perplexity" in include_sources or (requested_sources and "perplexity" in requested_sources)
     ):
         available.append("perplexity")
@@ -130,8 +154,8 @@ def available_sources(config: dict[str, Any], requested_sources: list[str] | Non
         available.append("threads")
     if requested_sources and "pinterest" in requested_sources and env.is_pinterest_available(config):
         available.append("pinterest")
-    if env.is_xquik_available(config):
-        available.append("xquik")
+    # xquik is a backend of the single "x" source (see env.x_backend_chain),
+    # not a separate parallel source — registered via the "x" entry above.
     exclude = {s.strip().lower() for s in (config.get("EXCLUDE_SOURCES") or "").split(",") if s.strip()}
     if exclude:
         available = [s for s in available if s not in exclude]
@@ -141,7 +165,7 @@ def available_sources(config: dict[str, Any], requested_sources: list[str] | Non
 def diagnose(config: dict[str, Any], requested_sources: list[str] | None = None) -> dict[str, Any]:
     requested_sources = normalize_requested_sources(requested_sources)
     google_key = _google_key(config)
-    x_status = env.get_x_source_status(config)
+    x_status = env.get_x_source_status(config, probe=True)
     native_web_backend = None
     if config.get("BRAVE_API_KEY"):
         native_web_backend = "brave"
@@ -156,20 +180,40 @@ def diagnose(config: dict[str, Any], requested_sources: list[str] | None = None)
         "openai": bool(config.get("OPENAI_API_KEY")) and config.get("OPENAI_AUTH_STATUS") == env.AUTH_STATUS_OK,
         "xai": bool(config.get("XAI_API_KEY")),
         "openrouter": bool(config.get("OPENROUTER_API_KEY")),
+        "perplexity": bool(config.get("PERPLEXITY_API_KEY")),
     }
+    reasoning_provider_available = any(
+        providers_status[name] for name in ("google", "openai", "xai", "openrouter")
+    )
     return {
         "providers": providers_status,
-        "local_mode": not any(providers_status.values()),
+        "local_mode": not reasoning_provider_available,
         "reasoning_provider": (config.get("LAST30DAYS_REASONING_PROVIDER") or "auto").lower(),
         "x_backend": x_status["source"],
         "bird_installed": x_status["bird_installed"],
         "bird_authenticated": x_status["bird_authenticated"],
         "bird_username": x_status["bird_username"],
+        "xquik_available": x_status.get("xquik_available", False),
+        "xquik_working": x_status.get("xquik_working"),
+        "xquik_status": x_status.get("xquik_status", ""),
         "native_web_backend": native_web_backend,
+        "native_search": env.is_native_search(config),
         "has_scrapecreators": bool(config.get("SCRAPECREATORS_API_KEY")),
         "has_github": bool(config.get("GITHUB_TOKEN") or which("gh")),
         "available_sources": available_sources(config, requested_sources),
     }
+
+
+def _inner_max_workers(stream_count: int, *, internal_subrun: bool) -> int:
+    """Worker-pool size for the per-stream fanout inside a single pipeline run.
+
+    Top-level runs use up to 16 workers. Subruns of ``run_competitor_fanout``
+    cap the inner pool to 4 so a six-way competitor fan-out stays below
+    roughly 30 worker threads in aggregate instead of ~96.
+    """
+    if internal_subrun:
+        return max(2, min(4, stream_count or 1))
+    return max(4, min(16, stream_count or 1))
 
 
 def run(
@@ -188,18 +232,22 @@ def run(
     tiktok_creators: list[str] | None = None,
     ig_creators: list[str] | None = None,
     lookback_days: int = 30,
+    as_of_date: str | None = None,
     github_user: str | None = None,
     github_repos: list[str] | None = None,
+    hiring_signals_mode: bool = False,
     internal_subrun: bool = False,
 ) -> schema.Report:
     settings = DEPTH_SETTINGS[depth]
     requested_sources = normalize_requested_sources(requested_sources)
-    from_date, to_date = dates.get_date_range(lookback_days)
+    from_date, to_date = dates.get_date_range(lookback_days, as_of_date=as_of_date)
 
     if mock:
         runtime = providers.mock_runtime(config, depth)
         reasoning_provider = None
         available = list(requested_sources or MOCK_AVAILABLE_SOURCES)
+        if not requested_sources and not hiring_signals_mode and not _company_topic_likely(topic):
+            available = [source for source in available if source != "jobs"]
     else:
         runtime, reasoning_provider = providers.resolve_runtime(config, depth)
         available = available_sources(config, requested_sources)
@@ -207,23 +255,34 @@ def run(
             available = [source for source in available if source in requested_sources]
     if web_backend == "none":
         available = [s for s in available if s != "grounding"]
-    elif web_backend in ("brave", "exa", "serper", "parallel") and "grounding" not in available:
+    elif web_backend in ("brave", "exa", "serper", "parallel", "keyless") and "grounding" not in available:
         available.append("grounding")
+    if (hiring_signals_mode or _company_topic_likely(topic)) and "jobs" not in available:
+        available.append("jobs")
+    if hiring_signals_mode:
+        config = dict(config)
+        config["_hiring_signals_mode"] = True
+        if not requested_sources:
+            available = ["jobs"]
     if not available:
         raise RuntimeError("No sources are available for this run.")
+
+    planner_requested_sources = requested_sources
+    if hiring_signals_mode and not planner_requested_sources:
+        planner_requested_sources = ["jobs"]
 
     if external_plan:
         # External plan provided (e.g., from Claude Code via --plan flag).
         # Parse it through the same sanitizer to validate structure.
         plan = planner._sanitize_plan(
-            external_plan, topic, available, requested_sources, depth,
+            external_plan, topic, available, planner_requested_sources, depth,
         )
         plan_source = "external"
     else:
         plan = planner.plan_query(
             topic=topic,
             available_sources=available,
-            requested_sources=requested_sources,
+            requested_sources=planner_requested_sources,
             depth=depth,
             provider=None if mock else reasoning_provider,
             model=None if mock else runtime.planner_model,
@@ -246,6 +305,7 @@ def run(
         for sq in plan.subqueries:
             if "grounding" not in sq.sources:
                 sq.sources.append("grounding")
+    _ensure_jobs_in_plan(plan, available, explicit=hiring_signals_mode, topic=topic)
 
     # Always-on planner trace. Emits one summary line plus one per subquery
     # so retrieval-breadth failures like the 2026-04-19 Hermes Agent Use Cases
@@ -273,6 +333,10 @@ def run(
     # DEGRADED RUN banner when a named-entity topic was invoked bare
     # (source=deterministic AND no pre-research flags). LAW 7 backstop.
     bundle.artifacts["plan_source"] = plan_source
+    # Hiring-signals is deliberately jobs-only with no multi-source --plan, so
+    # the LAW 7 degraded-run and Step 0.55 pre-research banners do not apply -
+    # they would contradict the documented jobs-scoped flow. Suppress them.
+    bundle.artifacts["hiring_signals_mode"] = hiring_signals_mode
 
     # Project-mode or person-mode GitHub: run once before the main subquery loop
     _github_custom_done = False
@@ -331,7 +395,7 @@ def run(
         for source in subquery.sources
         if source in available
     )
-    max_workers = max(4, min(16, stream_count or 1))
+    max_workers = _inner_max_workers(stream_count, internal_subrun=internal_subrun)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         for subquery in plan.subqueries:
             for source in subquery.sources:
@@ -408,7 +472,11 @@ def run(
                 freshness_mode=plan.freshness_mode,
                 ranking_query=subquery.ranking_query,
             )
-            normalized = normalized[: settings["per_stream_limit"]]
+            # Jobs is exempt from per_stream_limit: a careers board is a complete
+            # snapshot of open roles, and truncating it to the default 12 drops
+            # strategic postings (the whole point of hiring-signals coverage).
+            if source != "jobs":
+                normalized = normalized[: settings["per_stream_limit"]]
             bundle.add_items(subquery.label, source, normalized)
             if artifact:
                 bundle.artifacts.setdefault("grounding", []).append(artifact)
@@ -449,14 +517,40 @@ def run(
         skip_sources=_github_skip_retry,
     )
 
-    # Clear errors for sources that returned items despite partial failures.
-    # A source that 429'd on one subquery but succeeded on another is not "errored".
+    # Reclassify partial failures as DEGRADED instead of silently dropping them.
+    # A source that 429'd on one subquery but succeeded on another is not a hard
+    # failure, but it is not healthy either: it likely returned fewer results
+    # than it should have. Move it out of errors_by_source (so it isn't reported
+    # as "failed") and into degraded_by_source (so it survives into warnings),
+    # rather than deleting the signal outright as the engine used to.
+    degraded_by_source: dict[str, str] = {}
     for source in list(bundle.errors_by_source):
         if bundle.items_by_source.get(source):
+            degraded_by_source[source] = bundle.errors_by_source[source]
             del bundle.errors_by_source[source]
 
-    items_by_source = _finalize_items_by_source(bundle.items_by_source, topic=topic, config=config)
+    hiring_summary = _apply_hiring_signal_gate(
+        bundle,
+        explicit=hiring_signals_mode,
+        topic=topic,
+    )
+    if hiring_summary:
+        bundle.artifacts["hiring_signals"] = hiring_summary
+
+    items_by_source = _finalize_items_by_source(
+        bundle.items_by_source, topic=topic, config=config, depth=depth, mock=mock,
+    )
     candidates = weighted_rrf(bundle.items_by_source_and_query, plan, pool_limit=settings["pool_limit"])
+    # Normalized set of handles this run resolved for the topic. A candidate
+    # authored by one of these is first-party and is exempted from the
+    # entity-miss demotion in rerank (a post never repeats its own author's
+    # name, so the body-text grounding check would otherwise zero out the
+    # subject's own highest-signal posts).
+    resolved_handles = {
+        h.lstrip("@").strip().lower()
+        for h in ([x_handle, github_user, *(x_related or [])])
+        if h and h.strip()
+    }
     ranked_candidates = rerank.rerank_candidates(
         topic=topic,
         plan=plan,
@@ -464,6 +558,7 @@ def run(
         provider=None if mock else reasoning_provider,
         model=None if mock else runtime.rerank_model,
         shortlist_size=settings["rerank_limit"],
+        resolved_handles=resolved_handles,
     )
     rerank.score_fun(
         topic=topic,
@@ -481,7 +576,7 @@ def run(
         )
 
     clusters = cluster_candidates(ranked_candidates, plan)
-    warnings = _warnings(items_by_source, ranked_candidates, bundle.errors_by_source)
+    warnings = _warnings(items_by_source, ranked_candidates, bundle.errors_by_source, degraded_by_source)
 
     return schema.Report(
         topic=topic,
@@ -513,8 +608,19 @@ def _normalize_score_dedupe(
         freshness_mode=freshness_mode,
     )
     prepared_query = relevance.PreparedQuery(ranking_query)
-    normalized = signals.annotate_stream(normalized, prepared_query, freshness_mode)
-    normalized = signals.prune_low_relevance(normalized)
+    lookback_window_days = (
+        datetime.strptime(to_date, "%Y-%m-%d").date()
+        - datetime.strptime(from_date, "%Y-%m-%d").date()
+    ).days
+    normalized = signals.annotate_stream(
+        normalized,
+        prepared_query,
+        freshness_mode,
+        reference_date=to_date,
+        max_days=lookback_window_days,
+    )
+    if source != "jobs":
+        normalized = signals.prune_low_relevance(normalized)
     normalized = dedupe.dedupe_items(normalized)
     for item in normalized:
         item.snippet = snippet.extract_best_snippet(item, prepared_query)
@@ -525,11 +631,27 @@ def _finalize_items_by_source(
     items_by_source_raw: dict[str, list[schema.SourceItem]],
     topic: str = "",
     config: dict | None = None,
+    depth: str = "default",
+    mock: bool = False,
 ) -> dict[str, list[schema.SourceItem]]:
     finalized = {}
     for source, items in items_by_source_raw.items():
         items = sorted(items, key=lambda item: item.local_rank_score or 0.0, reverse=True)
         items = dedupe.dedupe_items(items)
+        if source == "youtube" and items and not mock:
+            # Same budget-at-the-survivors principle as the digg branch
+            # below: retrieval-time transcripts go to each search's
+            # top-by-views candidates, while final selection ranks by
+            # relevance. Backfill survivors that arrived without one so the
+            # transcript budget lands on videos the brief actually shows
+            # (#542).
+            sc_token = (
+                config.get("SCRAPECREATORS_API_KEY")
+                if config and env.is_youtube_sc_available(config) else None
+            )
+            youtube_yt.backfill_transcripts(
+                items, topic=topic, depth=depth, token=sc_token,
+            )
         # Post-merge topic-relevance filter for Polymarket: comparison queries
         # fan out into per-entity subqueries ("Hermes", "OpenClaw") whose topic
         # is too narrow for Gamma API to filter meaningfully. Re-validating the
@@ -552,10 +674,93 @@ def _finalize_items_by_source(
     return finalized
 
 
+def _apply_hiring_signal_gate(
+    bundle: schema.RetrievalBundle,
+    *,
+    explicit: bool,
+    topic: str,
+) -> dict[str, Any] | None:
+    jobs_items = bundle.items_by_source.get("jobs") or []
+    if not jobs_items:
+        if explicit:
+            return hiring_signals.analyze([], explicit=True, topic=topic)
+        return None
+
+    summary = hiring_signals.analyze(jobs_items, explicit=explicit, topic=topic)
+    if not explicit and not summary.get("include"):
+        bundle.items_by_source.pop("jobs", None)
+        for key in list(bundle.items_by_source_and_query):
+            if key[1] == "jobs":
+                del bundle.items_by_source_and_query[key]
+    return summary
+
+
+def _ensure_jobs_in_plan(
+    plan: schema.QueryPlan,
+    available: list[str],
+    *,
+    explicit: bool,
+    topic: str,
+) -> None:
+    if "jobs" not in available:
+        return
+    if not (explicit or _company_topic_likely(topic)):
+        return
+    if "jobs" not in plan.source_weights:
+        plan.source_weights["jobs"] = 1.0
+    for subquery in plan.subqueries:
+        if "jobs" not in subquery.sources:
+            subquery.sources.append("jobs")
+
+
+def _company_topic_likely(topic: str) -> bool:
+    text = topic.strip()
+    if not text:
+        return False
+    lower = text.lower()
+    if "?" in text or len(text.split()) > 4:
+        return False
+    generic = {
+        "how", "what", "why", "best", "top", "tutorial", "guide", "prompts",
+        "news", "latest", "ideas", "examples",
+    }
+    if any(word in generic for word in lower.split()):
+        return False
+    known_single_word_companies = {
+        "apple", "uber", "google", "microsoft", "amazon", "meta", "netflix",
+        "openai", "anthropic", "qualtrics", "stripe", "brex",
+    }
+    if " vs " in lower or " versus " in lower:
+        parts = re.split(r"\s+(?:vs|versus)\s+", text, maxsplit=1, flags=re.IGNORECASE)
+        if len(parts) != 2:
+            return False
+        return _comparison_side_company_like(parts[0], known_single_word_companies) or _comparison_side_company_like(
+            parts[1], known_single_word_companies
+        )
+    return bool(text[:1].isupper() or lower in known_single_word_companies)
+
+
+def _comparison_side_company_like(side: str, known_companies: set[str]) -> bool:
+    token = re.sub(r"[^\w.+#-]", "", side.strip().split()[0] if side.strip() else "")
+    if not token:
+        return False
+    lower = token.lower()
+    common_tech_terms = {
+        "python", "ruby", "javascript", "typescript", "java", "go", "golang",
+        "rust", "php", "swift", "kotlin", "scala", "clojure", "elixir",
+        "react", "vue", "angular", "svelte", "node", "django", "rails",
+        "postgres", "mysql", "redis", "kubernetes", "docker",
+    }
+    if lower in common_tech_terms:
+        return False
+    return bool(token[:1].isupper() or lower in known_companies)
+
+
 def _warnings(
     items_by_source: dict[str, list[schema.SourceItem]],
     candidates: list[schema.Candidate],
     errors_by_source: dict[str, str],
+    degraded_by_source: dict[str, str] | None = None,
 ) -> list[str]:
     warnings: list[str] = []
     if not candidates:
@@ -571,6 +776,13 @@ def _warnings(
         warnings.append("Top evidence is highly concentrated in one source.")
     if errors_by_source:
         warnings.append(f"Some sources failed: {', '.join(sorted(errors_by_source))}")
+    if degraded_by_source:
+        # Partial failures: the source returned some items but errored/timed out
+        # on at least one subquery, so its coverage is likely incomplete. Kept
+        # distinct from hard failures so the signal is not silently dropped.
+        warnings.append(
+            f"Some sources returned partial results (degraded): {', '.join(sorted(degraded_by_source))}"
+        )
     if not items_by_source:
         warnings.append("No source returned usable items.")
     return warnings
@@ -613,7 +825,9 @@ def _run_supplemental_searches(
 
     from_date, to_date = date_range
 
-    # Convert SourceItems to dicts for entity_extract
+    # Convert SourceItems to dicts for entity_extract. All X items (whatever
+    # backend fetched them — bird, xai, xurl, xquik) land under the single "x"
+    # slug, so this reads the whole X corpus.
     x_dicts = [
         {"author_handle": item.author or "", "text": item.body or ""}
         for item in bundle.items_by_source.get("x", [])
@@ -659,13 +873,41 @@ def _run_supplemental_searches(
     if not handles and not related_handles:
         return
 
-    # Check if X is rate-limited
-    if "x" in rate_limited_sources:
-        return
+    # Pick the X handle-search backend: the first handle-capable backend in the
+    # chain (bird or xquik). These supplemental from:/mentions lanes are
+    # complementary to the topic search, so when the topic primary can't run
+    # them (xai/xurl have no handle-lane implementation) but a capable backend
+    # is available, use it rather than skipping Phase 2. bird scrapes X GraphQL
+    # with the user's browser cookies; xquik runs the same lanes over its REST
+    # API. All items land under the single "x" slug.
+    x_slug = "x"
+    chain = env.x_backend_chain(config)
+    # Trust an explicit runtime backend as the head of the chain.
+    pinned = runtime.x_search_backend
+    if pinned:
+        chain = [pinned] + [b for b in chain if b != pinned]
+    primary = next((b for b in chain if b in ("bird", "xquik")), None)
 
-    backend = runtime.x_search_backend or env.get_x_source(config)
-    if backend != "bird":
-        return  # Handle search only works with Bird CLI
+    if primary == "bird":
+        def _from_lane(hs: list, count: int) -> list:
+            return bird_x.search_handles(hs, topic, from_date, count_per=count)
+
+        def _about_lane(hs: list, count: int) -> list:
+            return bird_x.search_mentions(hs, from_date, count_per=count)
+    elif primary == "xquik":
+        xquik_token = env.get_xquik_token(config)
+
+        def _from_lane(hs: list, count: int) -> list:
+            return xquik.search_handles(hs, topic, from_date, to_date, count_per=count, token=xquik_token)
+
+        def _about_lane(hs: list, count: int) -> list:
+            return xquik.search_mentions(hs, from_date, to_date, topic=topic, count_per=count, token=xquik_token)
+    else:
+        return  # primary X backend has no handle-lane support (xai/xurl) or none configured
+
+    # Skip if the X source is rate-limited.
+    if x_slug in rate_limited_sources:
+        return
 
     # Collect existing URLs for deduplication
     existing_urls = {
@@ -678,28 +920,36 @@ def _run_supplemental_searches(
     ranking_query = plan.subqueries[0].ranking_query if plan.subqueries else topic
     primary_label = plan.subqueries[0].label if plan.subqueries else "primary"
 
-    # Search primary handles (full weight)
+    # Search primary handles (full weight): FROM lane (their own tweets) +
+    # ABOUT lane (tweets mentioning them). Both engagement-weighted and deduped
+    # by URL at normalize time.
     if handles:
+        # Independent try/except per lane so a failure in one does not discard
+        # the other's already-computed results.
+        from_items: list = []
+        about_items: list = []
         try:
-            raw_items = bird_x.search_handles(
-                handles, topic, from_date, count_per=3,
-            )
+            from_items = _from_lane(handles, FROM_LANE_COUNT_PER)
         except Exception as exc:
-            print(f"[Pipeline] Phase 2 handle search failed: {exc}", file=sys.stderr)
-            if not bundle.items_by_source.get("x"):
-                bundle.errors_by_source["x"] = f"Phase 2 handle search: {exc}"
-            raw_items = []
+            print(f"[Pipeline] Phase 2 FROM-lane search failed: {exc}", file=sys.stderr)
+            if not bundle.items_by_source.get(x_slug):
+                bundle.errors_by_source[x_slug] = f"Phase 2 FROM-lane: {exc}"
+        try:
+            about_items = _about_lane(handles, MENTION_LANE_COUNT_PER)
+        except Exception as exc:
+            print(f"[Pipeline] Phase 2 ABOUT-lane search failed: {exc}", file=sys.stderr)
+        raw_items = from_items + about_items
 
         if raw_items:
             normalized = _normalize_score_dedupe(
-                "x", raw_items, from_date, to_date,
+                x_slug, raw_items, from_date, to_date,
                 freshness_mode=plan.freshness_mode,
                 ranking_query=ranking_query,
             )
             # Deduplicate against Phase 1 URLs
             normalized = [item for item in normalized if item.url not in existing_urls]
             if normalized:
-                bundle.add_items(primary_label, "x", normalized)
+                bundle.add_items(primary_label, x_slug, normalized)
                 # Update existing URLs for related-handle dedup
                 for item in normalized:
                     if item.url:
@@ -708,16 +958,14 @@ def _run_supplemental_searches(
     # Search related handles with lower weight (0.3)
     if related_handles:
         try:
-            raw_items = bird_x.search_handles(
-                related_handles, topic, from_date, count_per=3,
-            )
+            raw_items = _from_lane(related_handles, RELATED_HANDLE_COUNT_PER)
         except Exception as exc:
             print(f"[Pipeline] Phase 2 related handle search failed: {exc}", file=sys.stderr)
             raw_items = []
 
         if raw_items:
             normalized = _normalize_score_dedupe(
-                "x", raw_items, from_date, to_date,
+                x_slug, raw_items, from_date, to_date,
                 freshness_mode=plan.freshness_mode,
                 ranking_query=ranking_query,
             )
@@ -726,7 +974,7 @@ def _run_supplemental_searches(
             if normalized:
                 # Use a separate subquery label with lower weight so RRF
                 # scores related-handle results below primary results.
-                bundle.add_items("supplemental-related", "x", normalized)
+                bundle.add_items("supplemental-related", x_slug, normalized)
                 # Register the supplemental-related label in the plan for fusion
                 if not any(sq.label == "supplemental-related" for sq in plan.subqueries):
                     plan.subqueries.append(
@@ -734,7 +982,7 @@ def _run_supplemental_searches(
                             label="supplemental-related",
                             search_query=", ".join(related_handles),
                             ranking_query=ranking_query,
-                            sources=["x"],
+                            sources=[x_slug],
                             weight=0.3,
                         )
                     )
@@ -819,6 +1067,8 @@ def _retry_thin_sources(
             freshness_mode=plan.freshness_mode,
             ranking_query=retry_subquery.ranking_query,
         )
+        if source == "jobs":
+            return source, normalized
         return source, normalized[:settings["per_stream_limit"]]
 
     retryable = [s for s in thin_sources if s not in rate_limited_sources]
@@ -839,6 +1089,33 @@ def _retry_thin_sources(
                     bundle.items_by_source_and_query.setdefault((primary_label, source), []).extend(new_items)
             except Exception as exc:
                 print(f"[Pipeline] Retry failed for {source}: {type(exc).__name__}: {exc}", file=sys.stderr)
+
+
+def _fetch_x_backend(backend, subquery, from_date, to_date, depth, config):
+    """Fetch X items from a single backend. Returns (items, error_str).
+
+    Backends are tried in priority order by the caller (env.x_backend_chain);
+    a non-empty error_str signals a hard failure (auth/payment/etc.) so the
+    caller can fail over to the next backend or surface the error honestly.
+    """
+    query = subquery.search_query
+    if backend == "bird":
+        result = bird_x.search_x(query, from_date, to_date, depth=depth)
+        items = bird_x.parse_bird_response(result, query=query)
+    elif backend == "xai":
+        model = config.get("LAST30DAYS_X_MODEL") or config.get("XAI_MODEL_PIN") or providers.XAI_DEFAULT
+        result = xai_x.search_x(config["XAI_API_KEY"], model, query, from_date, to_date, depth=depth)
+        items = xai_x.parse_x_response(result)
+    elif backend == "xurl":
+        result = xurl_x.search_x(query, depth=depth)
+        items = xurl_x.parse_x_response(result, topic=query)
+    elif backend == "xquik":
+        result = xquik.search_xquik(query, from_date, to_date, depth=depth, token=env.get_xquik_token(config))
+        items = xquik.parse_xquik_response(result)
+    else:
+        return [], f"unknown X backend: {backend}"
+    err = result.get("error") if isinstance(result, dict) else ""
+    return items, (err or "")
 
 
 def _retrieve_stream(
@@ -869,6 +1146,15 @@ def _retrieve_stream(
     if source == "grounding":
         return grounding.web_search(
             subquery.search_query, date_range, config, backend=web_backend)
+    if source == "jobs":
+        return jobs.search_jobs(
+            raw_topic or topic or subquery.search_query,
+            date_range,
+            config,
+            depth=depth,
+            web_backend=web_backend,
+            explicit=bool(config.get("_hiring_signals_mode")),
+        )
     if source == "reddit":
         # Use raw_topic so expand_reddit_queries() generates diverse variants
         # from the original user topic, not the planner's narrowed search_query.
@@ -908,46 +1194,62 @@ def _retrieve_stream(
                 )
         return [], {}
     if source == "x":
-        backend = runtime.x_search_backend or env.get_x_source(config)
-        if backend == "bird":
-            result = bird_x.search_x(subquery.search_query, from_date, to_date, depth=depth)
-            return bird_x.parse_bird_response(result, query=subquery.search_query), {}
-        if backend == "xai":
-            model = config.get("LAST30DAYS_X_MODEL") or config.get("XAI_MODEL_PIN") or providers.XAI_DEFAULT
-            result = xai_x.search_x(
-                config["XAI_API_KEY"],
-                model,
-                subquery.search_query,
-                from_date,
-                to_date,
-                depth=depth,
-            )
-            return xai_x.parse_x_response(result), {}
-        if backend == "xurl":
-            result = xurl_x.search_x(subquery.search_query, depth=depth)
-            return xurl_x.parse_x_response(result, topic=subquery.search_query), {}
-        raise RuntimeError("No X backend is available.")
+        # One X source, an ordered chain of interchangeable backends. Try the
+        # primary; fall through to the next only if it returns nothing or errors.
+        chain = env.x_backend_chain(config)
+        # Trust an explicit runtime backend as the primary (already resolved as
+        # available), keeping the rest of the chain as failover backups.
+        pinned = runtime.x_search_backend
+        if pinned:
+            chain = [pinned] + [b for b in chain if b != pinned]
+        if not chain:
+            raise RuntimeError("No X backend is available.")
+        last_error = ""
+        for i, backend in enumerate(chain):
+            items, err = _fetch_x_backend(backend, subquery, from_date, to_date, depth, config)
+            if items:
+                if i > 0:
+                    print(f"[X] primary backend(s) returned nothing; used fallback '{backend}'", file=sys.stderr)
+                return items, {}
+            if err:
+                last_error = f"{backend}: {err}"
+                print(f"[X] backend '{backend}' failed ({err}); trying next", file=sys.stderr)
+        if last_error:
+            raise RuntimeError(f"All X backends failed — {last_error}")
+        return [], {}
     if source == "youtube":
         # Use raw_topic so expand_youtube_queries() generates diverse variants
         # from the original user topic, not the planner's narrowed search_query.
         yt_query = raw_topic or subquery.search_query
         result = None
-        # Try yt-dlp first, fall back to SC YouTube if it fails or isn't installed
+        # ScrapeCreators key (when present) is the default-on backup tier: it
+        # powers the per-video transcript fallback, the SC search fallback, and
+        # comment enrichment. None when no key, which keeps everything keyless.
+        sc_token = (
+            config.get("SCRAPECREATORS_API_KEY", "")
+            if env.is_youtube_sc_available(config) else None
+        )
+        # Try yt-dlp first; the SC transcript fallback covers per-video failures.
         if which("yt-dlp"):
             try:
-                result = youtube_yt.search_and_transcribe(yt_query, from_date, to_date, depth=depth)
+                result = youtube_yt.search_and_transcribe(
+                    yt_query, from_date, to_date, depth=depth, token=sc_token,
+                )
             except Exception:
                 result = None
-        if (result is None or not result.get("items")) and env.is_youtube_sc_available(config):
-            sc_token = config.get("SCRAPECREATORS_API_KEY", "")
-            result = youtube_yt.search_youtube_sc(yt_query, from_date, to_date, depth=depth, token=sc_token)
+        # Fall back to SC YouTube search if yt-dlp failed or isn't installed.
+        if (result is None or not result.get("items")) and sc_token:
+            result = youtube_yt.search_youtube_sc(
+                yt_query, from_date, to_date, depth=depth, token=sc_token,
+            )
         if result is None:
             result = {"items": []}
-        # Enrich top videos with comments when SC key is available
+        # Enrich top videos with comments (default-on when a key is present).
         items = youtube_yt.parse_youtube_response(result)
         if items and env.is_youtube_comments_available(config):
-            sc_token = config.get("SCRAPECREATORS_API_KEY", "")
-            youtube_yt.enrich_with_comments(items, token=sc_token)
+            youtube_yt.enrich_with_comments(
+                items, token=config.get("SCRAPECREATORS_API_KEY", ""),
+            )
         return items, {}
     if source == "tiktok":
         # Use raw_topic so expand_tiktok_queries() generates diverse variants
@@ -1005,7 +1307,12 @@ def _retrieve_stream(
         return truthsocial.parse_truthsocial_response(result), {}
     if source == "polymarket":
         result = polymarket.search_polymarket(subquery.search_query, from_date, to_date, depth=depth)
-        return polymarket.parse_polymarket_response(result, topic=subquery.search_query), {}
+        # Relevance filtering keys off the stable original research topic, not the
+        # per-subquery search_query (which narrows differently on each fanout pass
+        # and would let off-topic markets through on broad subqueries while dropping
+        # everything on narrow ones).
+        relevance_topic = raw_topic or topic or subquery.search_query
+        return polymarket.parse_polymarket_response(result, topic=relevance_topic), {}
     if source == "github":
         # Resolve once at the pipeline boundary so search and enrich
         # share the result; otherwise each call would re-run the env
@@ -1013,6 +1320,10 @@ def _retrieve_stream(
         token = github.resolve_token(config.get("GITHUB_TOKEN"))
         response = github.search_github(subquery.search_query, from_date, to_date, depth=depth, token=token)
         items = github.parse_github_response(response)
+        # Note: an unauth rate-limit (response["error"]) is expected on the
+        # tokenless anon tier and returns empty here rather than raising — github
+        # is now always eligible, so raising would spam "github failed" on every
+        # tokenless run. The condition is logged in github.search_github.
         items = github.enrich_with_comments(items, depth=depth, token=token)
         return items, {}
     if source == "pinterest":
@@ -1032,13 +1343,6 @@ def _retrieve_stream(
         ), {}
     if source == "perplexity":
         return perplexity.search(subquery.search_query, date_range, config, deep=config.get("_deep_research", False))
-    if source == "xquik":
-        result = xquik.search_xquik(
-            subquery.search_query, from_date, to_date,
-            depth=depth,
-            token=env.get_xquik_token(config),
-        )
-        return xquik.parse_xquik_response(result), {}
     raise RuntimeError(f"Unsupported source: {source}")
 
 
@@ -1125,6 +1429,35 @@ def _mock_stream_results(source: str, subquery: schema.SubQuery) -> tuple[list[d
                 "posts": [],
                 "relevance": 0.71,
                 "why_relevant": "Mock Digg cluster",
+            },
+        ],
+        "jobs": [
+            {
+                "id": "J1",
+                "title": "Founding Enterprise Solutions Engineer",
+                "url": "https://boards.greenhouse.io/example/jobs/1",
+                "description": (
+                    f"Work with enterprise customers on SSO, SOC 2, security, "
+                    f"and procurement workflows for {subquery.search_query}."
+                ),
+                "department": "Sales",
+                "location": "San Francisco, CA",
+                "date": dates.get_date_range(4)[0],
+                "provider": "mock",
+                "relevance": 0.8,
+                "why_relevant": "Mock public job posting",
+            },
+            {
+                "id": "J2",
+                "title": "Security Platform Engineer",
+                "url": "https://boards.greenhouse.io/example/jobs/2",
+                "description": "Build enterprise security, audit, and admin workflows.",
+                "department": "Engineering",
+                "location": "Remote",
+                "date": dates.get_date_range(6)[0],
+                "provider": "mock",
+                "relevance": 0.78,
+                "why_relevant": "Mock public job posting",
             },
         ],
     }
