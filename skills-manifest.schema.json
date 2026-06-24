@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PersonalSkills manifest",
+  "type": "object",
+  "required": ["version", "updated", "skills"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "updated": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "skills": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["type", "source", "update", "notes"],
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["custom", "github", "web", "third-party", "internal", "unknown"]
+          },
+          "source": {
+            "type": ["string", "null"],
+            "minLength": 1
+          },
+          "update": {
+            "type": "string",
+            "enum": ["local", "manual-diff", "script", "git-subtree", "unknown"]
+          },
+          "notes": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

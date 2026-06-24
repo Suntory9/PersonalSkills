@@ -1,0 +1,193 @@
+{
+  "$schema": "./skills-manifest.schema.json",
+  "version": 1,
+  "updated": "2026-06-24",
+  "skills": {
+    "agent-reach": {
+      "type": "github",
+      "source": "https://github.com/Panniantong/Agent-Reach",
+      "update": "manual-diff",
+      "notes": "第三方来源；同步前先与本地版本 diff，避免覆盖本地适配。"
+    },
+    "ai-spend-audit": {
+      "type": "custom",
+      "source": null,
+      "update": "local",
+      "notes": "本地 AI 花费审计 skill；内容引用 CodexBar 作为数据源参考，不等同于上游来源。"
+    },
+    "caveman": {
+      "type": "custom",
+      "source": null,
+      "update": "local",
+      "notes": "本地自制/改造 skill；来源待补充。"
+    },
+    "codex-review": {
+      "type": "custom",
+      "source": null,
+      "update": "local",
+      "notes": "Codex review 收尾流程 skill。"
+    },
+    "diagnose": {
+      "type": "custom",
+      "source": null,
+      "update": "local",
+      "notes": "诊断循环流程 skill；来源待补充。"
+    },
+    "find-skills": {
+      "type": "web",
+      "source": "https://skills.sh/",
+      "update": "manual-diff",
+      "notes": "围绕 skills.sh 发现和安装 Agent Skills 的 skill。"
+    },
+    "git-cherry-pick": {
+      "type": "custom",
+      "source": null,
+      "update": "local",
+      "notes": "本地 cherry-pick 工作流 skill。"
+    },
+    "grill-me": {
+      "type": "github",
+      "source": "https://github.com/mattpocock/skills",
+      "update": "manual-diff",
+      "notes": "Matches mattpocock/skills grill-me; local copy may include adaptations, so sync via manual diff."
+    },
+    "grill-with-docs": {
+      "type": "github",
+      "source": "https://github.com/mattpocock/skills",
+      "update": "manual-diff",
+      "notes": "Matches mattpocock/skills grill-with-docs; local copy may include adaptations, so sync via manual diff."
+    },
+    "handoff": {
+      "type": "github",
+      "source": "https://github.com/mattpocock/skills",
+      "update": "manual-diff",
+      "notes": "Matches mattpocock/skills handoff; local copy may include adaptations, so sync via manual diff."
+    },
+    "hatch-pet": {
+      "type": "third-party",
+      "source": null,
+      "update": "manual-diff",
+      "notes": "包含 Apache-2.0 license；原始来源待补充。"
+    },
+    "improve-codebase-architecture": {
+      "type": "github",
+      "source": "https://github.com/mattpocock/skills",
+      "update": "manual-diff",
+      "notes": "Matches mattpocock/skills improve-codebase-architecture; local copy may include adaptations, so sync via manual diff."
+    },
+    "jira-fullstack-orchestrator": {
+      "type": "internal",
+      "source": null,
+      "update": "local",
+      "notes": "Jira 驱动的内部全栈协作流程 skill。"
+    },
+    "jira-proto-to-main": {
+      "type": "internal",
+      "source": null,
+      "update": "local",
+      "notes": "内部 Jira/proto 到 main 工作流 skill。"
+    },
+    "jira-submit-to-git": {
+      "type": "internal",
+      "source": null,
+      "update": "local",
+      "notes": "内部 Jira 提交到 Git 工作流 skill。"
+    },
+    "jira-unity-to-main": {
+      "type": "internal",
+      "source": null,
+      "update": "local",
+      "notes": "内部 Jira/Unity 到 main 工作流 skill。"
+    },
+    "jira-unity-to-tw": {
+      "type": "internal",
+      "source": null,
+      "update": "local",
+      "notes": "内部 Jira/Unity 到 TW 分支工作流 skill。"
+    },
+    "last30days": {
+      "type": "github",
+      "source": "https://github.com/mvanhorn/last30days-skill",
+      "update": "manual-diff",
+      "notes": "第三方来源且本地包含较多脚本/适配；同步前必须 diff。"
+    },
+    "pdf": {
+      "type": "third-party",
+      "source": null,
+      "update": "manual-diff",
+      "notes": "包含 Apache-2.0 license；原始来源待补充。"
+    },
+    "prototype": {
+      "type": "github",
+      "source": "https://github.com/mattpocock/skills",
+      "update": "manual-diff",
+      "notes": "Matches mattpocock/skills prototype; local copy may include adaptations, so sync via manual diff."
+    },
+    "setup-matt-pocock-skills": {
+      "type": "github",
+      "source": "https://github.com/mattpocock/skills",
+      "update": "manual-diff",
+      "notes": "Matches mattpocock/skills setup-matt-pocock-skills; local copy may include adaptations, so sync via manual diff."
+    },
+    "tdd": {
+      "type": "github",
+      "source": "https://github.com/mattpocock/skills",
+      "update": "manual-diff",
+      "notes": "Matches mattpocock/skills tdd; local copy may include adaptations, so sync via manual diff."
+    },
+    "tech-doc-style-chinese": {
+      "type": "github",
+      "source": "https://github.com/Fenng/tech-doc-style-chinese.git",
+      "update": "manual-diff",
+      "notes": "第三方中文技术文档风格 skill；本地可能包含适配文件。"
+    },
+    "to-issues": {
+      "type": "github",
+      "source": "https://github.com/mattpocock/skills",
+      "update": "manual-diff",
+      "notes": "Matches mattpocock/skills to-issues; local copy may include adaptations, so sync via manual diff."
+    },
+    "to-prd": {
+      "type": "github",
+      "source": "https://github.com/mattpocock/skills",
+      "update": "manual-diff",
+      "notes": "Matches mattpocock/skills to-prd; local copy may include adaptations, so sync via manual diff."
+    },
+    "triage": {
+      "type": "github",
+      "source": "https://github.com/mattpocock/skills",
+      "update": "manual-diff",
+      "notes": "Matches mattpocock/skills triage; local copy may include adaptations, so sync via manual diff."
+    },
+    "ttdbl2-unity-prefab-view-builder": {
+      "type": "internal",
+      "source": null,
+      "update": "local",
+      "notes": "TTDBL2 Unity prefab/view 内部工作流 skill。"
+    },
+    "unity-mcp-skill": {
+      "type": "third-party",
+      "source": null,
+      "update": "manual-diff",
+      "notes": "Unity MCP 编排 skill；原始来源待补充。"
+    },
+    "web-novel-downloader": {
+      "type": "custom",
+      "source": null,
+      "update": "local",
+      "notes": "本地自制网文下载 skill。"
+    },
+    "xdoa-skill": {
+      "type": "internal",
+      "source": null,
+      "update": "local",
+      "notes": "XDOA 内部工具/文档/流程 skill。"
+    },
+    "zoom-out": {
+      "type": "custom",
+      "source": null,
+      "update": "local",
+      "notes": "让 agent 拉高视角的本地提示 skill。"
+    }
+  }
+}
