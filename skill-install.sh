@@ -170,7 +170,7 @@ if [ -L "$CLAUDE_SKILLS" ] && [ "$(readlink "$CLAUDE_SKILLS")" = ".agents/skills
 elif [ -e "$CLAUDE_SKILLS" ]; then
   echo -e "  ${YELLOW}⚠ .claude/skills 已存在，未修改${NC}"
 else
-  ln -s .agents/skills "$CLAUDE_SKILLS"
+  ln -s ../.agents/skills "$CLAUDE_SKILLS"
   echo -e "  ${GREEN}✓ .claude/skills → .agents/skills${NC}"
 fi
 
