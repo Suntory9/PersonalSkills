@@ -1,7 +1,7 @@
 {
   "$schema": "./skills-manifest.schema.json",
   "version": 1,
-  "updated": "2026-06-24",
+  "updated": "2026-06-25",
   "skills": {
     "agent-reach": {
       "type": "github",
@@ -15,12 +15,6 @@
       "update": "local",
       "notes": "本地 AI 花费审计 skill；内容引用 CodexBar 作为数据源参考，不等同于上游来源。"
     },
-    "caveman": {
-      "type": "custom",
-      "source": null,
-      "update": "local",
-      "notes": "本地自制/改造 skill；来源待补充。"
-    },
     "codex-review": {
       "type": "custom",
       "source": null,
@@ -31,7 +25,7 @@
       "type": "custom",
       "source": null,
       "update": "local",
-      "notes": "诊断循环流程 skill；来源待补充。"
+      "notes": "本地诊断循环 skill；上游 mattpocock/skills 中有类似的 diagnosing-bugs，但本地版本有适配改动，不同步上游。"
     },
     "find-skills": {
       "type": "web",
@@ -63,41 +57,17 @@
       "update": "script",
       "notes": "由 localagentskills update 直接从 GitHub 上游同步；如需保留本地适配，请先移除 source 或改为 local。"
     },
-    "hatch-pet": {
-      "type": "third-party",
-      "source": null,
-      "update": "manual-diff",
-      "notes": "包含 Apache-2.0 license；原始来源待补充。"
-    },
     "improve-codebase-architecture": {
       "type": "github",
       "source": "https://github.com/mattpocock/skills",
       "update": "script",
       "notes": "由 localagentskills update 直接从 GitHub 上游同步；如需保留本地适配，请先移除 source 或改为 local。"
     },
-    "jira-fullstack-orchestrator": {
-      "type": "internal",
-      "source": null,
-      "update": "local",
-      "notes": "Jira 驱动的内部全栈协作流程 skill。"
-    },
-    "jira-proto-to-main": {
-      "type": "internal",
-      "source": null,
-      "update": "local",
-      "notes": "内部 Jira/proto 到 main 工作流 skill。"
-    },
     "jira-submit-to-git": {
       "type": "internal",
       "source": null,
       "update": "local",
       "notes": "内部 Jira 提交到 Git 工作流 skill。"
-    },
-    "jira-unity-to-main": {
-      "type": "internal",
-      "source": null,
-      "update": "local",
-      "notes": "内部 Jira/Unity 到 main 工作流 skill。"
     },
     "jira-unity-to-tw": {
       "type": "internal",
@@ -118,12 +88,6 @@
       "notes": "包含 Apache-2.0 license；原始来源待补充。"
     },
     "prototype": {
-      "type": "github",
-      "source": "https://github.com/mattpocock/skills",
-      "update": "script",
-      "notes": "由 localagentskills update 直接从 GitHub 上游同步；如需保留本地适配，请先移除 source 或改为 local。"
-    },
-    "setup-matt-pocock-skills": {
       "type": "github",
       "source": "https://github.com/mattpocock/skills",
       "update": "script",
@@ -177,17 +141,11 @@
       "update": "local",
       "notes": "本地自制网文下载 skill。"
     },
-    "xdoa-skill": {
-      "type": "internal",
-      "source": null,
-      "update": "local",
-      "notes": "XDOA 内部工具/文档/流程 skill。"
-    },
     "zoom-out": {
       "type": "custom",
       "source": null,
       "update": "local",
-      "notes": "让 agent 拉高视角的本地提示 skill。"
+      "notes": "本地自制 — 让 agent 拉高视角的提示 skill；mattpocock/skills 中无对应上游。"
     }
   }
 }

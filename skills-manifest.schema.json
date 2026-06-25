@@ -2,7 +2,11 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "localagentskills manifest",
   "type": "object",
-  "required": ["version", "updated", "skills"],
+  "required": [
+    "version",
+    "updated",
+    "skills"
+  ],
   "additionalProperties": false,
   "properties": {
     "version": {
@@ -17,20 +21,41 @@
       "type": "object",
       "additionalProperties": {
         "type": "object",
-        "required": ["type", "source", "update", "notes"],
+        "required": [
+          "type",
+          "source",
+          "update",
+          "notes"
+        ],
         "additionalProperties": false,
         "properties": {
           "type": {
             "type": "string",
-            "enum": ["custom", "github", "web", "third-party", "internal", "unknown"]
+            "enum": [
+              "custom",
+              "github",
+              "web",
+              "third-party",
+              "internal",
+              "unknown"
+            ]
           },
           "source": {
-            "type": ["string", "null"],
+            "type": [
+              "string",
+              "null"
+            ],
             "minLength": 1
           },
           "update": {
             "type": "string",
-            "enum": ["local", "manual-diff", "script", "git-subtree", "unknown"]
+            "enum": [
+              "local",
+              "manual-diff",
+              "script",
+              "git-subtree",
+              "unknown"
+            ]
           },
           "notes": {
             "type": "string",

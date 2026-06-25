@@ -4,8 +4,7 @@
 
 This repository stores reusable Agent/Codex skills. The root contains installer entry points:
 
-- `install.py`: cross-platform installer for Claude Code and Codex skill directories.
-- `skill-install.sh`: interactive shell installer for selecting skills into a target project.
+- `install.py`: cross-platform CLI for managing skills in Claude Code and Codex.
 - `skills/<skill-name>/SKILL.md`: required skill definition file.
 - `skills/<skill-name>/scripts/`: optional executable helpers for that skill.
 - `skills/<skill-name>/references/`: optional supporting documentation.
@@ -16,12 +15,14 @@ Keep each skill self-contained. Shared assumptions should be documented in the r
 
 ## Build, Test, and Development Commands
 
-- `python install.py --list`: list available skills detected under `skills/`.
-- `python install.py`: install all skills to the supported local agent platforms.
-- `python install.py --skill <skill-name>`: install one skill for local verification.
-- `python install.py --target claude`: install only to Claude Code.
-- `python install.py --pip`: install declared Python dependencies where supported.
-- `bash skill-install.sh [target-project]`: interactively select skills for a project.
+- `python3 install.py list`: list available skills detected under `skills/`.
+- `python3 install.py install <skill-name>`: install one skill to the current project for local verification.
+- `python3 install.py install --all`: install all skills to the current project.
+- `python3 install.py install --global`: install all skills globally to Claude Code and Codex.
+- `python3 install.py install --global --target claude`: install globally only to Claude Code.
+- `python3 install.py uninstall <skill-name>`: uninstall a skill from the current project.
+- `python3 install.py status`: show global installation status.
+- `python3 install.py status --project .`: show current project installation status.
 
 There is no central build step. Validate with the relevant installer command and any skill-specific test script, such as `bash skills/ai-spend-audit/tests/run_all.sh`.
 
@@ -33,7 +34,7 @@ Prefer relative paths inside skills so the repository can be cloned or installed
 
 ## Testing Guidelines
 
-Add tests near the skill they verify, usually under `skills/<skill-name>/tests/`. Name Python tests `test_*.py` and shell runners `run_all.sh`. For installer changes, verify at least `python install.py --list` and one targeted install command.
+Add tests near the skill they verify, usually under `skills/<skill-name>/tests/`. Name Python tests `test_*.py` and shell runners `run_all.sh`. For installer changes, verify at least `python3 install.py list` and one targeted install command.
 
 ## Commit & Pull Request Guidelines
 
