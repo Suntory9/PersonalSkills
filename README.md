@@ -150,11 +150,12 @@ localagentskills status --global                     # 查看全局安装状态
 | [agent-reach](skills/agent-reach/) | MUST USE when user wants to 调研/research/搜索/search/查/找/look up anything on the internet — e.g. 全… | [GitHub](https://github.com/Panniantong/Agent-Reach) | 脚本同步 |
 | [ai-spend-audit](skills/ai-spend-audit/) | 分析最近 N 天(默认 7 天,支持任意天)的全部 AI 耗量与花费,横跨 Claude Code、Codex、XDT Maker、OpenClaw 等本地 session,可通过 prov… | 自制 | 本地维护 |
 | [codex-review](skills/codex-review/) | Codex code review closeout: local dirty changes, PR branch vs main, parallel tests. | 自制 | 本地维护 |
-| [diagnose](skills/diagnose/) | Disciplined diagnosis loop for hard bugs and performance regressions. Reproduce → minimise → hy… | 自制 | 本地维护 |
+| [diagnosing-bugs](skills/diagnosing-bugs/) | Diagnosis loop for hard bugs and performance regressions. Use when the user says "diagnose"/"de… | [GitHub](https://github.com/mattpocock/skills) | 脚本同步 |
 | [find-skills](skills/find-skills/) | Helps users discover and install agent skills when they ask questions like "how do I do X", "fi… | [网上](https://skills.sh/) | 手动 diff 同步 |
 | [git-cherry-pick](skills/git-cherry-pick/) | Ports a batch of commits from a source git branch onto the current branch using cherry-pick, in… | 自制 | 本地维护 |
 | [grill-me](skills/grill-me/) | A relentless interview to sharpen a plan or design. | [GitHub](https://github.com/mattpocock/skills) | 脚本同步 |
 | [grill-with-docs](skills/grill-with-docs/) | A relentless interview to sharpen a plan or design, which also creates docs (ADR's and glossary… | [GitHub](https://github.com/mattpocock/skills) | 脚本同步 |
+| [grilling](skills/grilling/) | Interview the user relentlessly about a plan or design. Use when the user wants to stress-test… | [GitHub](https://github.com/mattpocock/skills) | 脚本同步 |
 | [handoff](skills/handoff/) | Compact the current conversation into a handoff document for another agent to pick up. | [GitHub](https://github.com/mattpocock/skills) | 脚本同步 |
 | [improve-codebase-architecture](skills/improve-codebase-architecture/) | Scan a codebase for deepening opportunities, present them as a visual HTML report, then grill t… | [GitHub](https://github.com/mattpocock/skills) | 脚本同步 |
 | [jira-submit-to-git](skills/jira-submit-to-git/) | Submit Jira-related local changes from one of the configured XD repositories directly to the re… | 内部 | 本地维护 |
@@ -196,7 +197,7 @@ localagentskills status --global                     # 查看全局安装状态
 
 当前建议先使用 **vendored copy + manifest + manual diff**：第三方 skill 复制到本仓库中，记录上游 URL 和本地改动说明；需要更新时先拉取上游到临时目录，diff 后再合并，避免覆盖本地适配。
 
-当前仍需补充原始来源的第三方条目：`hatch-pet`、`pdf`、`unity-mcp-skill`。补齐后把它们从 `third-party` 改为更准确的 `github` / `web`，并填入 `source`。
+当前仍需补充原始来源的第三方条目：`pdf`、`unity-mcp-skill`。补齐后把它们从 `third-party` 改为更准确的 `github` / `web`，并填入 `source`。
 
 ## 新增 skill 流程
 

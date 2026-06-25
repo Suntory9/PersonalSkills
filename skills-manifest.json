@@ -21,12 +21,6 @@
       "update": "local",
       "notes": "Codex review 收尾流程 skill。"
     },
-    "diagnose": {
-      "type": "custom",
-      "source": null,
-      "update": "local",
-      "notes": "本地诊断循环 skill；上游 mattpocock/skills 中有类似的 diagnosing-bugs，但本地版本有适配改动，不同步上游。"
-    },
     "find-skills": {
       "type": "web",
       "source": "https://skills.sh/",
@@ -146,6 +140,18 @@
       "source": null,
       "update": "local",
       "notes": "本地自制 — 让 agent 拉高视角的提示 skill；mattpocock/skills 中无对应上游。"
+    },
+    "diagnosing-bugs": {
+      "type": "github",
+      "source": "https://github.com/mattpocock/skills",
+      "update": "script",
+      "notes": "由 localagentskills update 直接从 GitHub 上游同步；如需保留本地适配，请先移除 source 或改为 local。"
+    },
+    "grilling": {
+      "type": "github",
+      "source": "https://github.com/mattpocock/skills",
+      "update": "script",
+      "notes": "由 localagentskills update 直接从 GitHub 上游同步；如需保留本地适配，请先移除 source 或改为 local。"
     }
   }
 }

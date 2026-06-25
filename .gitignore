@@ -21,3 +21,6 @@ downloads/
 # OS
 .DS_Store
 Thumbs.db
+
+.agents
+.claude
