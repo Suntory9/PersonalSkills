@@ -112,6 +112,11 @@ def read_symlink_target(path: Path) -> str | None:
         return None
 
 
+def project_skill_present(path: Path) -> bool:
+    """Return True when a project skill entry exists, including broken symlinks."""
+    return path.exists() or path.is_symlink() or is_symlink_or_junction(path)
+
+
 def remove_link_or_junction(path: Path) -> None:
     """删除符号链接或 Windows junction，不递归删除真实目标。"""
     if path.is_dir():
@@ -274,7 +279,7 @@ def choose_project_skills_numbered(skills: list[Path], agents_dir: Path, project
     print(f"{CYAN}Target project:{NC} {BOLD}{project_dir}{NC}")
     print(f"{CYAN}Available skills:{NC}\n")
     for index, skill_dir in enumerate(skills, start=1):
-        mark = f"{GREEN}✓{NC}" if (agents_dir / skill_dir.name).exists() else " "
+        mark = f"{GREEN}✓{NC}" if project_skill_present(agents_dir / skill_dir.name) else " "
         desc = shorten(read_description(skill_dir))
         print(f"  {YELLOW}{index:2d}){NC} {mark} {BOLD}{skill_dir.name:<36}{NC} {DIM}{desc}{NC}")
 
@@ -295,7 +300,7 @@ def render_skill_picker(skills: list[Path], agents_dir: Path, selected: set[int]
     print(f"{CYAN}Target project:{NC} {BOLD}{project_dir}{NC}")
     print(f"{CYAN}选择 Skills：{NC}{DIM}↑/↓ 或 j/k 移动，Space 勾选，Ctrl-A 全选/取消，Enter 确认，Esc 退出{NC}\n")
     for index, skill_dir in enumerate(skills):
-        installed = (agents_dir / skill_dir.name).exists()
+        installed = project_skill_present(agents_dir / skill_dir.name)
         pointer = f"{CYAN}>{NC}" if index == cursor else " "
         checkbox = f"{GREEN}[x]{NC}" if index in selected else "[ ]"
         installed_tag = f" {YELLOW}(installed){NC}" if installed else ""
@@ -311,7 +316,7 @@ def choose_project_skills(project_dir: Path) -> list[Path]:
     if not sys.stdin.isatty():
         return choose_project_skills_numbered(skills, agents_dir, project_dir)
 
-    selected = {index for index, skill_dir in enumerate(skills) if (agents_dir / skill_dir.name).exists()}
+    selected = {index for index, skill_dir in enumerate(skills) if project_skill_present(agents_dir / skill_dir.name)}
     cursor = 0
     while True:
         render_skill_picker(skills, agents_dir, selected, cursor, project_dir)
