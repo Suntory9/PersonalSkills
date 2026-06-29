@@ -78,8 +78,10 @@ depend on that skill's workflow except for reusing the weekly-report script.
    - Add the generated Jira comment only after checking existing Jira comments.
      If a similar visible `测试用例：...` comment already exists, skip writing a
      duplicate and report that it was skipped.
-   - Update the programming weekly report using
-     `scripts/update_weekly_report.py`.
+   - Update the Feishu programming weekly report using
+     `scripts/update_weekly_report.py`. The default root is
+     [程序周报](https://xd.feishu.cn/wiki/C6tcwyaDRidEHikTGSzcZDAJnOg), and the
+     current-week page may also be overridden with `JIRA_WEEKLY_REPORT_FEISHU_URL`.
    - For `ttdbl2_protobuf`, sync changed proto files into
      `/Users/songdc/ttdbl2_unity/Assets/Config/ttdbl2_protobuf/` and tell the
      user Unity still needs its own submit step.

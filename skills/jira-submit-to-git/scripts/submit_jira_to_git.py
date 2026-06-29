@@ -405,11 +405,11 @@ def commit_and_push(root, branch, files, commit_msg, dry_run=False):
     run(["git", "push", "origin", branch], cwd=root, dry_run=dry_run)
 
 
-def update_weekly(issue_key, dry_run=False):
+def update_weekly(issue_key, summary, dry_run=False):
     if not WEEKLY_SCRIPT.exists():
         print(f"weekly_report skipped: missing {WEEKLY_SCRIPT}", file=sys.stderr)
         return
-    run([WEEKLY_SCRIPT, issue_key], dry_run=dry_run, capture=False)
+    run([WEEKLY_SCRIPT, issue_key, "--summary", summary], dry_run=dry_run, capture=False)
 
 
 def sync_proto_to_unity(root, cfg, files, dry_run=False):
@@ -528,7 +528,7 @@ def after_push(root, cfg, issue_key, commit_msg, test_case, files, dry_run=False
             if hook == "jira_test_comment":
                 add_jira_comment(issue_key, test_case, dry_run=dry_run)
             elif hook == "weekly_report":
-                update_weekly(issue_key, dry_run=dry_run)
+                update_weekly(issue_key, commit_msg.removeprefix(issue_key), dry_run=dry_run)
             elif hook == "sync_to_unity":
                 sync_proto_to_unity(root, cfg, files, dry_run=dry_run)
             elif hook == "trigger_excel_export":
@@ -548,7 +548,7 @@ def main():
     parser.add_argument("--branch", help="Override configured target branch.")
     parser.add_argument("--file", action="append", dest="files", help="Explicit file to submit. May be repeated.")
     parser.add_argument("--test-case", help="Explicit Jira test-case comment text, with or without the 测试用例： prefix.")
-    parser.add_argument("--dry-run", action="store_true", help="Print actions without changing Git/Jira/Confluence.")
+    parser.add_argument("--dry-run", action="store_true", help="Print actions without changing Git/Jira/Feishu.")
     parser.add_argument("--list-files", action="store_true", help="Infer files and test-case comment, then exit before Git sync.")
     parser.add_argument("--no-after-push", action="store_true", help="Skip Jira comment, weekly report, and repo-specific hooks.")
     args = parser.parse_args()
